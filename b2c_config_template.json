@@ -1,0 +1,13 @@
+{
+    "user_id": "YOUR_USER_ID",
+    "password": "YOUR_PASSWORD",
+    "client_id": "YOUR_CLIENT_ID",
+    "second_auth_type": "TOTP",
+    "second_auth": "YOUR_TOTP_CODE",
+    "order_quantity": 1,
+    "stop_loss_percentage": 0.98,
+    "buy_price_multiplier": 1.05,
+    "sell_price_multiplier": 0.95,
+    "max_percent_change": 15,
+    "auto_square_off_time": "15:20:00"
+}

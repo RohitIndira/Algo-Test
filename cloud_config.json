@@ -1,0 +1,15 @@
+{
+    "api_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzUHVibGlzaGVyQ29kZSI6ImN1IiwiQ3VzdG9tZXJJZCI6IjM4NSIsInNQYXJ0bmVyQXBwSWQiOiIwMUYwMEYiLCJzQXBwbGljYXRpb25Ub2tlbiI6IkluZGlyYVNlY3VyaXRpZXNCMkMxMDcwNDY0ZGVlZiIsIlB1Ymxpc2hlck5hbWUiOiJJbmRpcmEgU2VjdXJpdGllcyBQdnQgTHRkIC0gQjJDIiwiQnJva2VyTmFtZSI6IkluZGlyYSBTZWN1cml0aWVzIFB2dCBMdGQiLCJQcm9kdWN0U291cmNlIjoiIiwiQjJDIjoiWSIsInVzZXJJZCI6IklTUEwxOTAyNyIsImV4cCI6OTE5MTA5NTA4MCwiaWF0IjoxNzI2MTM1MDk1fQ.HQScaGPRwJTlZQgy0kLTlRoKxMrmjVF-jLmCKPKx1Kg",
+    "user_id": "ISPL19027",
+    "password": "Broker@123#",
+    "client_id": "ISPL19027",
+    "source": "WAVEAPI",
+    "second_auth_type": "OTP",
+    "second_auth": "173022",
+    "order_quantity": 1,
+    "stop_loss_percentage": 0.98,
+    "buy_price_multiplier": 1.05,
+    "sell_price_multiplier": 0.95,
+    "max_percent_change": 15,
+    "auto_square_off_time": "15:25"
+}

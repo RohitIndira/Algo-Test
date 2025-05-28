@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>B2C Trading Strategy Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.3/font/bootstrap-icons.css">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .card {
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            border: none;
+        }
+        .card-header {
+            background-color: #f1f5f9;
+            border-bottom: 1px solid #e9ecef;
+            font-weight: 600;
+            border-radius: 10px 10px 0 0 !important;
+        }
+        .btn-primary {
+            background-color: #0d6efd;
+            border-color: #0d6efd;
+        }
+        .btn-primary:hover {
+            background-color: #0b5ed7;
+            border-color: #0a58ca;
+        }
+        .header-container {
+            background-color: #ffffff;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            padding: 20px 0;
+            margin-bottom: 30px;
+        }
+        .logo {
+            font-size: 24px;
+            font-weight: 700;
+            color: #0d6efd;
+        }
+        .nav-pills .nav-link.active {
+            background-color: #0d6efd;
+        }
+        .nav-pills .nav-link {
+            color: #495057;
+        }
+        .status-badge {
+            font-size: 14px;
+            padding: 6px 12px;
+            border-radius: 20px;
+        }
+        .status-running {
+            background-color: #d1e7dd;
+            color: #0f5132;
+        }
+        .status-stopped {
+            background-color: #f8d7da;
+            color: #842029;
+        }
+        .table {
+            font-size: 14px;
+        }
+        .table th {
+            font-weight: 600;
+            background-color: #f8f9fa;
+        }
+        .log-container {
+            height: 400px;
+            overflow-y: auto;
+            background-color: #212529;
+            color: #f8f9fa;
+            border-radius: 5px;
+            padding: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+            line-height: 1.4;
+            padding: 3px 5px;
+            border-radius: 3px;
+        }
+        .log-entry-buy {
+            background-color: rgba(25, 135, 84, 0.2);
+            color: #98fb98;
+            font-weight: bold;
+            border-left: 3px solid #198754;
+        }
+        .log-entry-sell {
+            background-color: rgba(220, 53, 69, 0.2);
+            color: #ffb6c1;
+            font-weight: bold;
+            border-left: 3px solid #dc3545;
+        }
+        .position-card {
+            transition: all 0.3s ease;
+        }
+        .position-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
+        }
+        .stats-value {
+            font-size: 24px;
+            font-weight: 700;
+        }
+        .stats-label {
+            font-size: 14px;
+            color: #6c757d;
+        }
+        .footer {
+            margin-top: 50px;
+            padding: 20px 0;
+            background-color: #f8f9fa;
+            border-top: 1px solid #e9ecef;
+        }
+        .positive-value {
+            color: #198754;
+        }
+        .negative-value {
+            color: #dc3545;
+        }
+        .neutral-value {
+            color: #6c757d;
+        }
+        .refresh-icon {
+            cursor: pointer;
+            transition: transform 0.3s ease;
+        }
+        .refresh-icon:hover {
+            transform: rotate(180deg);
+        }
+        .last-updated {
+            font-size: 12px;
+            color: #6c757d;
+        }
+    </style>
+</head>
+<body>
+    <div class="header-container">
+        <div class="container">
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="logo">
+                    <i class="bi bi-graph-up-arrow"></i> B2C Trading Strategy Dashboard
+                </div>
+                <div>
+                    <a href="/" class="btn btn-outline-primary me-2">
+                        <i class="bi bi-gear"></i> Configuration
+                    </a>
+                    <span id="strategyStatus" class="status-badge status-stopped">
+                        <i class="bi bi-circle-fill"></i> Stopped
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <button id="startBtn" class="btn btn-success me-2">
+                                    <i class="bi bi-play-fill"></i> Start Strategy
+                                </button>
+                                <button id="stopBtn" class="btn btn-danger" disabled>
+                                    <i class="bi bi-stop-fill"></i> Stop Strategy
+                                </button>
+                                <button id="updateTotpBtn" class="btn btn-outline-primary ms-2">
+                                    <i class="bi bi-shield-lock"></i> Update TOTP
+                                </button>
+                            </div>
+                            <div class="d-flex align-items-center">
+                                <span class="last-updated me-2">Last updated: <span id="lastUpdated">-</span></span>
+                                <i class="bi bi-arrow-repeat fs-5 refresh-icon" id="refreshBtn" title="Refresh Data"></i>
+                            </div>
+                        </div>
+                        
+                        <!-- TOTP Update Form (hidden by default) -->
+                        <div id="totpUpdateForm" class="mt-3" style="display: none;">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h6 class="mb-3">Update TOTP Code</h6>
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <label for="dashboardSecondAuthType" class="form-label">Second Auth Type</label>
+                                            <select class="form-select" id="dashboardSecondAuthType">
+                                                <option value="TOTP">TOTP</option>
+                                                <option value="OTP">OTP</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label for="dashboardSecondAuth" class="form-label">Second Auth Code</label>
+                                            <input type="text" class="form-control" id="dashboardSecondAuth" placeholder="Enter new TOTP/OTP code">
+                                        </div>
+                                    </div>
+                                    <div class="mt-3">
+                                        <button id="saveTotpBtn" class="btn btn-primary">
+                                            <i class="bi bi-save"></i> Save & Apply
+                                        </button>
+                                        <button id="cancelTotpBtn" class="btn btn-outline-secondary ms-2">
+                                            <i class="bi bi-x"></i> Cancel
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <div class="stats-value" id="totalPositions">0</div>
+                        <div class="stats-label">Active Positions</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <div class="stats-value" id="totalOrders">0</div>
+                        <div class="stats-label">Total Orders</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <div class="stats-value" id="realizedPnl">₹0.00</div>
+                        <div class="stats-label">Realized P&L</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <div class="stats-value" id="unrealizedPnl">₹0.00</div>
+                        <div class="stats-label">Unrealized P&L</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-8">
+                <ul class="nav nav-pills mb-3" id="pills-tab" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="pills-positions-tab" data-bs-toggle="pill" data-bs-target="#pills-positions" type="button" role="tab" aria-controls="pills-positions" aria-selected="true">Positions</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="pills-orders-tab" data-bs-toggle="pill" data-bs-target="#pills-orders" type="button" role="tab" aria-controls="pills-orders" aria-selected="false">Recent Orders</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="pills-trades-tab" data-bs-toggle="pill" data-bs-target="#pills-trades" type="button" role="tab" aria-controls="pills-trades" aria-selected="false">Trade History</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="pills-performance-tab" data-bs-toggle="pill" data-bs-target="#pills-performance" type="button" role="tab" aria-controls="pills-performance" aria-selected="false">Performance</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="pills-logs-tab" data-bs-toggle="pill" data-bs-target="#pills-logs" type="button" role="tab" aria-controls="pills-logs" aria-selected="false">Logs</button>
+                    </li>
+                </ul>
+                <div class="tab-content" id="pills-tabContent">
+                    <div class="tab-pane fade show active" id="pills-positions" role="tabpanel" aria-labelledby="pills-positions-tab">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">Current Positions</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="noPositionsMessage" class="alert alert-info">
+                                    <i class="bi bi-info-circle-fill"></i> No active positions at the moment.
+                                </div>
+                                <div class="table-responsive" id="positionsTableContainer" style="display: none;">
+                                    <table class="table table-hover" id="positionsTable">
+                                        <thead>
+                                            <tr>
+                                                <th>Symbol</th>
+                                                <th>Current Price</th>
+                                                <th>Entry Price</th>
+                                                <th>High Price</th>
+                                                <th>Stop Loss</th>
+                                                <th>% Change</th>
+                                                <th>Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="positionsTableBody">
+                                            <!-- Positions will be populated here -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tab-pane fade" id="pills-orders" role="tabpanel" aria-labelledby="pills-orders-tab">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">Recent Orders</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="noOrdersMessage" class="alert alert-info">
+                                    <i class="bi bi-info-circle-fill"></i> No orders have been placed yet.
+                                </div>
+                                <div class="table-responsive" id="ordersTableContainer" style="display: none;">
+                                    <table class="table table-hover" id="ordersTable">
+                                        <thead>
+                                            <tr>
+                                                <th>Time</th>
+                                                <th>Symbol</th>
+                                                <th>Type</th>
+                                                <th>Quantity</th>
+                                                <th>Price</th>
+                                                <th>Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="ordersTableBody">
+                                            <!-- Orders will be populated here -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tab-pane fade" id="pills-trades" role="tabpanel" aria-labelledby="pills-trades-tab">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">Trade History</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="noTradesMessage" class="alert alert-info">
+                                    <i class="bi bi-info-circle-fill"></i> No trades have been completed yet.
+                                </div>
+                                <div class="table-responsive" id="tradesTableContainer" style="display: none;">
+                                    <table class="table table-hover" id="tradesTable">
+                                        <thead>
+                                            <tr>
+                                                <th>Symbol</th>
+                                                <th>Entry Price</th>
+                                                <th>Exit Price</th>
+                                                <th>Quantity</th>
+                                                <th>Entry Time</th>
+                                                <th>Exit Time</th>
+                                                <th>P&L</th>
+                                                <th>% Gain</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="tradesTableBody">
+                                            <!-- Trades will be populated here -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="tab-pane fade" id="pills-performance" role="tabpanel" aria-labelledby="pills-performance-tab">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">Performance Statistics</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="card mb-3">
+                                            <div class="card-body">
+                                                <h6 class="card-title">Trade Statistics</h6>
+                                                <div class="d-flex justify-content-between mb-2">
+                                                    <span>Total Trades:</span>
+                                                    <span id="totalTradesStats">0</span>
+                                                </div>
+                                                <div class="d-flex justify-content-between mb-2">
+                                                    <span>Winning Trades:</span>
+                                                    <span id="winningTradesStats" class="positive-value">0</span>
+                                                </div>
+                                                <div class="d-flex justify-content-between mb-2">
+                                                    <span>Losing Trades:</span>
+                                                    <span id="losingTradesStats" class="negative-value">0</span>
+                                                </div>
+                                                <div class="d-flex justify-content-between">
+                                                    <span>Win Rate:</span>
+                                                    <span id="winRateStats">0%</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="card mb-3">
+                                            <div class="card-body">
+                                                <h6 class="card-title">Profit & Loss</h6>
+                                                <div class="d-flex justify-content-between mb-2">
+                                                    <span>Total P&L:</span>
+                                                    <span id="totalPnlStats">₹0.00</span>
+                                                </div>
+                                                <div class="d-flex justify-content-between mb-2">
+                                                    <span>Average P&L per Trade:</span>
+                                                    <span id="avgPnlStats">₹0.00</span>
+                                                </div>
+                                                <div class="d-flex justify-content-between mb-2">
+                                                    <span>Max Profit:</span>
+                                                    <span id="maxProfitStats" class="positive-value">₹0.00</span>
+                                                </div>
+                                                <div class="d-flex justify-content-between">
+                                                    <span>Max Loss:</span>
+                                                    <span id="maxLossStats" class="negative-value">₹0.00</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="tab-pane fade" id="pills-logs" role="tabpanel" aria-labelledby="pills-logs-tab">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">Strategy Logs</h5>
+                                <button class="btn btn-sm btn-outline-secondary" id="exportLogsBtn">
+                                    <i class="bi bi-download"></i> Export Logs
+                                </button>
+                            </div>
+                            <div class="card-body">
+                                <div class="log-container" id="logsContainer">
+                                    <!-- Logs will be populated here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Strategy Configuration</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">User ID</label>
+                            <div id="userIdValue">-</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Client ID</label>
+                            <div id="clientIdValue">-</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Order Quantity</label>
+                            <div id="orderQuantityValue">-</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Stop Loss</label>
+                            <div id="stopLossValue">-</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Buy Price Multiplier</label>
+                            <div id="buyPriceValue">-</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Sell Price Multiplier</label>
+                            <div id="sellPriceValue">-</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Max Percent Change</label>
+                            <div id="maxPercentValue">-</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Auto Square Off Time</label>
+                            <div id="squareOffValue">-</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Market Status</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between mb-3">
+                            <span class="fw-bold">Market Status</span>
+                            <span class="badge bg-success">Open</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-3">
+                            <span class="fw-bold">Market Time</span>
+                            <span id="marketTime">-</span>
+                        </div>
+                        <div class="d-flex justify-content-between">
+                            <span class="fw-bold">Trading Session</span>
+                            <span>Regular</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="footer">
+        <div class="container">
+            <div class="text-center">
+                <p class="mb-0">B2C Trading Strategy &copy; 2025</p>
+            </div>
+        </div>
+    </div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/dashboard.js"></script>
+    <script src="/static/test-logs.js"></script>
+</body>
+</html>
