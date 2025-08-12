@@ -138,6 +138,10 @@ document.addEventListener('DOMContentLoaded', function() {
                                 // Get 5-day high from tokens table
                                 const fiveDayHigh = position.five_day_high || position.entry_price;
                                 
+                                // FIXED: Calculate P&L for display (current total value - total entry value)
+                                const currentPnL = totalCurrentValue - position.total_entry_value;
+                                const pnlClass = currentPnL > 0 ? 'positive-value' : (currentPnL < 0 ? 'negative-value' : 'neutral-value');
+                                
                                 // Format percentage change with color
                                 const percentClass = percentChange > 0 ? 'positive-value' : (percentChange < 0 ? 'negative-value' : 'neutral-value');
                                 
@@ -147,9 +151,10 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <td>₹${currentPrice.toFixed(2)}</td>
                                     <td>₹${position.entry_price.toFixed(2)}</td>
                                     <td>₹${fiveDayHigh.toFixed(2)}</td>
+                                    <td>₹${realtimePos ? realtimePos.day_high.toFixed(2) : currentPrice.toFixed(2)}</td>
                                     <td>₹${position.stop_loss.toFixed(2)}</td>
                                     <td class="${percentClass}">${percentChange.toFixed(2)}%</td>
-                                    <td>₹${totalCurrentValue.toFixed(2)}</td>
+                                    <td class="${pnlClass}">₹${totalCurrentValue.toFixed(2)} (P&L: ₹${currentPnL.toFixed(2)})</td>
                                     <td><span class="badge bg-success">Open</span></td>
                                 `;
                                 
@@ -166,6 +171,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <td><strong>${position.quantity}</strong></td>
                                     <td>₹${position.entry_price.toFixed(2)}</td>
                                     <td>₹${position.entry_price.toFixed(2)}</td>
+                                    <td>₹${position.five_day_high.toFixed(2)}</td>
                                     <td>₹${position.entry_price.toFixed(2)}</td>
                                     <td>₹${position.stop_loss.toFixed(2)}</td>
                                     <td>0.00%</td>
@@ -233,10 +239,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         tradesTableBody.appendChild(row);
                     });
                     
-                    // Calculate realized PnL
-                    const realizedPnl = trades.reduce((total, trade) => total + trade.pnl, 0);
-                    document.getElementById('realizedPnl').textContent = `₹${realizedPnl.toFixed(2)}`;
-                    document.getElementById('realizedPnl').className = `stats-value ${realizedPnl > 0 ? 'positive-value' : (realizedPnl < 0 ? 'negative-value' : 'neutral-value')}`;
+                    // REMOVED: Don't calculate realized PnL here - use API data instead
+                    // The main dashboard cards get updated by updateStatistics() function
                 } else {
                     // Show no trades message and hide table
                     noTradesMessage.style.display = 'block';
@@ -296,42 +300,76 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // Check strategy status
+    // Check strategy status (for initial load and manual refresh only)
     function checkStrategyStatus() {
         fetch('/api/strategy/status')
             .then(response => response.json())
             .then(data => {
-                isRunning = data.running;
+                const serverRunning = data.running;
+                
+                // Update running status and buttons
+                isRunning = serverRunning;
+                updateButtonStates();
                 
                 // Update status badge
                 const statusBadge = document.getElementById('strategyStatus');
                 if (isRunning) {
                     statusBadge.className = 'status-badge status-running';
                     statusBadge.innerHTML = '<i class="bi bi-circle-fill"></i> Running';
-                    
-                    // Enable stop button, disable start button
-                    document.getElementById('startBtn').disabled = true;
-                    document.getElementById('stopBtn').disabled = false;
                 } else {
                     statusBadge.className = 'status-badge status-stopped';
                     statusBadge.innerHTML = '<i class="bi bi-circle-fill"></i> Stopped';
-                    
-                    // Enable start button, disable stop button
-                    document.getElementById('startBtn').disabled = false;
-                    document.getElementById('stopBtn').disabled = true;
                 }
                 
                 // Update statistics
-                document.getElementById('totalPositions').textContent = data.positions || 0;
-                document.getElementById('totalOrders').textContent = data.orders || 0;
-                document.getElementById('realizedPnl').textContent = `₹${(data.realized_pnl || 0).toFixed(2)}`;
-                document.getElementById('unrealizedPnl').textContent = `₹${(data.unrealized_pnl || 0).toFixed(2)}`;
-                
-                // Set classes based on values
-                document.getElementById('realizedPnl').className = `stats-value ${data.realized_pnl > 0 ? 'positive-value' : (data.realized_pnl < 0 ? 'negative-value' : 'neutral-value')}`;
-                document.getElementById('unrealizedPnl').className = `stats-value ${data.unrealized_pnl > 0 ? 'positive-value' : (data.unrealized_pnl < 0 ? 'negative-value' : 'neutral-value')}`;
+                updateStatistics(data);
             })
             .catch(error => console.error('Error checking strategy status:', error));
+    }
+    
+    // Update statistics only (for auto-refresh without affecting buttons)
+    function updateStatistics(data = null) {
+        if (data) {
+            // Use provided data
+            document.getElementById('totalPositions').textContent = data.positions || 0;
+            document.getElementById('totalOrders').textContent = data.orders || 0;
+            document.getElementById('realizedPnl').textContent = `₹${(data.realized_pnl || 0).toFixed(2)}`;
+            document.getElementById('unrealizedPnl').textContent = `₹${(data.unrealized_pnl || 0).toFixed(2)}`;
+            
+            // Set classes based on values
+            document.getElementById('realizedPnl').className = `stats-value ${data.realized_pnl > 0 ? 'positive-value' : (data.realized_pnl < 0 ? 'negative-value' : 'neutral-value')}`;
+            document.getElementById('unrealizedPnl').className = `stats-value ${data.unrealized_pnl > 0 ? 'positive-value' : (data.unrealized_pnl < 0 ? 'negative-value' : 'neutral-value')}`;
+        } else {
+            // Fetch fresh statistics data
+            fetch('/api/strategy/status')
+                .then(response => response.json())
+                .then(data => {
+                    // Only update statistics, don't touch button states
+                    document.getElementById('totalPositions').textContent = data.positions || 0;
+                    document.getElementById('totalOrders').textContent = data.orders || 0;
+                    document.getElementById('realizedPnl').textContent = `₹${(data.realized_pnl || 0).toFixed(2)}`;
+                    document.getElementById('unrealizedPnl').textContent = `₹${(data.unrealized_pnl || 0).toFixed(2)}`;
+                    
+                    // Set classes based on values
+                    document.getElementById('realizedPnl').className = `stats-value ${data.realized_pnl > 0 ? 'positive-value' : (data.realized_pnl < 0 ? 'negative-value' : 'neutral-value')}`;
+                    document.getElementById('unrealizedPnl').className = `stats-value ${data.unrealized_pnl > 0 ? 'positive-value' : (data.unrealized_pnl < 0 ? 'negative-value' : 'neutral-value')}`;
+                })
+                .catch(error => console.error('Error updating statistics:', error));
+        }
+    }
+    
+    // Function to update button states based on current status
+    function updateButtonStates() {
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        
+        if (isRunning) {
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+        } else {
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+        }
     }
     
     // Load all data
@@ -348,8 +386,16 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initial data load
     loadAllData();
     
-    // Refresh data every 10 seconds
-    setInterval(loadAllData, 10000);
+    // Refresh data every 5 seconds for faster real-time updates (but skip button updates)
+    setInterval(function() {
+        loadConfig();
+        loadSignals();
+        loadPositions();
+        loadTradeHistory();
+        loadPerformanceStats();
+        updateStatistics(); // Update statistics without affecting buttons
+        updateMarketTime();
+    }, 5000);
     
     // Refresh button click handler
     document.getElementById('refreshBtn').addEventListener('click', function() {
@@ -358,6 +404,13 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Start button click handler
     document.getElementById('startBtn').addEventListener('click', function() {
+        // Immediately disable button to prevent double clicks
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        
+        startBtn.disabled = true;
+        startBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Starting...';
+        
         fetch('/api/strategy/start', {
             method: 'POST'
         })
@@ -372,9 +425,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 statusBadge.className = 'status-badge status-running';
                 statusBadge.innerHTML = '<i class="bi bi-circle-fill"></i> Running';
                 
-                // Enable stop button, disable start button
-                document.getElementById('startBtn').disabled = true;
-                document.getElementById('stopBtn').disabled = false;
+                // Update buttons
+                startBtn.innerHTML = '<i class="bi bi-play-fill"></i> Start Strategy';
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
                 
                 // Show alert
                 const alertDiv = document.createElement('div');
@@ -395,15 +449,31 @@ document.addEventListener('DOMContentLoaded', function() {
                     setTimeout(() => alertDiv.remove(), 150);
                 }, 5000);
                 
-                // Refresh data
-                loadAllData();
+                // Don't call loadAllData() to avoid resetting buttons
+                console.log('Strategy started successfully');
+            } else {
+                // Reset button if failed
+                startBtn.innerHTML = '<i class="bi bi-play-fill"></i> Start Strategy';
+                startBtn.disabled = false;
             }
         })
-        .catch(error => console.error('Error starting strategy:', error));
+        .catch(error => {
+            console.error('Error starting strategy:', error);
+            // Reset button on error
+            startBtn.innerHTML = '<i class="bi bi-play-fill"></i> Start Strategy';
+            startBtn.disabled = false;
+        });
     });
     
     // Stop button click handler
     document.getElementById('stopBtn').addEventListener('click', function() {
+        // Immediately disable button to prevent double clicks
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        
+        stopBtn.disabled = true;
+        stopBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Stopping...';
+        
         fetch('/api/strategy/stop', {
             method: 'POST'
         })
@@ -418,9 +488,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 statusBadge.className = 'status-badge status-stopped';
                 statusBadge.innerHTML = '<i class="bi bi-circle-fill"></i> Stopped';
                 
-                // Enable start button, disable stop button
-                document.getElementById('startBtn').disabled = false;
-                document.getElementById('stopBtn').disabled = true;
+                // Update buttons
+                stopBtn.innerHTML = '<i class="bi bi-stop-fill"></i> Stop Strategy';
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
                 
                 // Show alert
                 const alertDiv = document.createElement('div');
@@ -441,11 +512,20 @@ document.addEventListener('DOMContentLoaded', function() {
                     setTimeout(() => alertDiv.remove(), 150);
                 }, 5000);
                 
-                // Refresh data
-                loadAllData();
+                // Don't call loadAllData() to avoid resetting buttons
+                console.log('Strategy stopped successfully');
+            } else {
+                // Reset button if failed
+                stopBtn.innerHTML = '<i class="bi bi-stop-fill"></i> Stop Strategy';
+                stopBtn.disabled = false;
             }
         })
-        .catch(error => console.error('Error stopping strategy:', error));
+        .catch(error => {
+            console.error('Error stopping strategy:', error);
+            // Reset button on error
+            stopBtn.innerHTML = '<i class="bi bi-stop-fill"></i> Stop Strategy';
+            stopBtn.disabled = false;
+        });
     });
     
     // TOTP update form handlers
@@ -557,15 +637,25 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .catch(error => console.error('Error exporting logs:', error));
     });
+    
     // Emergency Square Off button click handler
     document.getElementById('emergencySquareOffBtn').addEventListener('click', function() {
+        console.log('Emergency Square Off button clicked!');
+        
         // Show confirmation dialog
         if (confirm('⚠️ EMERGENCY SQUARE OFF\n\nThis will immediately close ALL open positions!\n\nAre you sure you want to continue?')) {
+            console.log('User confirmed emergency square off');
+            
             fetch('/api/emergency_square_off', {
                 method: 'POST'
             })
-            .then(response => response.json())
+            .then(response => {
+                console.log('Emergency API response status:', response.status);
+                return response.json();
+            })
             .then(data => {
+                console.log('Emergency API response data:', data);
+                
                 if (data.status === 'success') {
                     // Show success alert
                     const alertDiv = document.createElement('div');
@@ -631,7 +721,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             })
             .catch(error => {
-                console.error('Error during emergency square off:', error);
+                console.error('Emergency Square Off Error:', error);
                 
                 // Show error alert
                 const alertDiv = document.createElement('div');
@@ -652,6 +742,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     setTimeout(() => alertDiv.remove(), 150);
                 }, 8000);
             });
+        } else {
+            console.log('User cancelled emergency square off');
         }
     });
 });

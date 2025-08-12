@@ -17,8 +17,9 @@ CORS(app)  # Enable CORS for all routes
 # Create static directory if it doesn't exist
 os.makedirs('static', exist_ok=True)
 
-# Store the process ID of the running strategy
-strategy_process = None
+# Store strategy processes for multiple users
+user_strategy_processes = {}
+current_user_id = "default_user"  # Default user for single-user mode
 
 # Initialize SQLite database
 def init_db():
@@ -49,6 +50,7 @@ def init_db():
         high_price REAL,
         stop_loss REAL,
         percent_change REAL,
+        quantity INTEGER DEFAULT 1,
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (token) REFERENCES tokens(token)
     )
@@ -68,9 +70,27 @@ def init_db():
         status TEXT,
         pnl REAL,
         percent_gain REAL,
+        quantity INTEGER DEFAULT 1,
         FOREIGN KEY (token) REFERENCES tokens(token)
     )
     ''')
+    
+    # Add quantity columns to existing tables if they don't exist (DATABASE MIGRATION)
+    try:
+        cursor.execute('ALTER TABLE signals ADD COLUMN quantity INTEGER DEFAULT 1')
+        print("✅ Added quantity column to signals table")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
+    try:
+        cursor.execute('ALTER TABLE positions ADD COLUMN quantity INTEGER DEFAULT 1')
+        print("✅ Added quantity column to positions table")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
+    # Update existing records to have quantity = 1 (default for backward compatibility)
+    cursor.execute('UPDATE signals SET quantity = 1 WHERE quantity IS NULL')
+    cursor.execute('UPDATE positions SET quantity = 1 WHERE quantity IS NULL')
     
     conn.commit()
     conn.close()
@@ -86,13 +106,13 @@ def load_config():
         print(f"Error loading configuration: {e}")
         return {}
 
-# Function to get all signals
+# Function to get all signals with quantity
 def get_signals(limit=50):
     try:
         conn = sqlite3.connect('trading_strategy.db')
         cursor = conn.cursor()
         
-        cursor.execute('SELECT token, symbol, signal_type, price, high_price, stop_loss, percent_change, timestamp FROM signals ORDER BY timestamp DESC LIMIT ?', (limit,))
+        cursor.execute('SELECT token, symbol, signal_type, price, high_price, stop_loss, percent_change, quantity, timestamp FROM signals ORDER BY timestamp DESC LIMIT ?', (limit,))
         signals = cursor.fetchall()
         
         conn.close()
@@ -102,22 +122,13 @@ def get_signals(limit=50):
         print(f"Error getting signals: {e}")
         return []
 
-# Function to get all open positions
+# Function to get all open positions with quantity
 def get_open_positions():
     try:
         conn = sqlite3.connect('trading_strategy.db')
         cursor = conn.cursor()
         
-        # Check if the stop_loss column exists
-        cursor.execute("PRAGMA table_info(positions)")
-        columns = [column[1] for column in cursor.fetchall()]
-        
-        if 'stop_loss' in columns:
-            cursor.execute('SELECT token, symbol, entry_price, stop_loss, entry_time FROM positions WHERE status = "OPEN"')
-        else:
-            # If stop_loss column doesn't exist, use a default value
-            cursor.execute('SELECT token, symbol, entry_price, 0, entry_time FROM positions WHERE status = "OPEN"')
-        
+        cursor.execute('SELECT token, symbol, entry_price, stop_loss, entry_time, quantity FROM positions WHERE status = "OPEN"')
         positions = cursor.fetchall()
         
         conn.close()
@@ -127,14 +138,14 @@ def get_open_positions():
         print(f"Error getting open positions: {e}")
         return []
 
-# Function to get all closed positions
+# Function to get all closed positions with quantity
 def get_closed_positions(limit=50):
     try:
         conn = sqlite3.connect('trading_strategy.db')
         cursor = conn.cursor()
         
         cursor.execute('''
-        SELECT token, symbol, entry_price, exit_price, entry_time, exit_time, pnl, percent_gain 
+        SELECT token, symbol, entry_price, exit_price, entry_time, exit_time, pnl, percent_gain, quantity
         FROM positions 
         WHERE status = 'CLOSED' 
         ORDER BY exit_time DESC 
@@ -257,6 +268,9 @@ def signals():
         signals_data = get_signals()
         signals_list = []
         for signal in signals_data:
+            quantity = signal[7] if len(signal) > 7 and signal[7] is not None else 1
+            total_value = signal[3] * quantity  # price * quantity
+            
             signals_list.append({
                 "token": signal[0],
                 "symbol": signal[1],
@@ -265,7 +279,9 @@ def signals():
                 "high_price": signal[4],
                 "stop_loss": signal[5],
                 "percent_change": signal[6],
-                "timestamp": signal[7]
+                "quantity": quantity,
+                "total_value": total_value,
+                "timestamp": signal[8] if len(signal) > 8 else signal[7]
             })
         return jsonify({"signals": signals_list})
     except Exception as e:
@@ -278,9 +294,9 @@ def positions():
         conn = sqlite3.connect('trading_strategy.db')
         cursor = conn.cursor()
         
-        # Get open positions with 5-day high from tokens table
+        # Get open positions with 5-day high from tokens table and quantity
         cursor.execute('''
-        SELECT p.token, p.symbol, p.entry_price, p.stop_loss, p.entry_time, t.high_price
+        SELECT p.token, p.symbol, p.entry_price, p.stop_loss, p.entry_time, t.high_price, p.quantity
         FROM positions p
         LEFT JOIN tokens t ON p.token = t.token
         WHERE p.status = "OPEN"
@@ -291,13 +307,19 @@ def positions():
         
         positions_list = []
         for position in open_positions:
+            quantity = position[6] if position[6] is not None else 1
+            total_entry_value = position[2]  # This is already total value from database
+            entry_price_per_share = total_entry_value / quantity
+            
             positions_list.append({
                 "token": position[0],
                 "symbol": position[1],
-                "entry_price": position[2],
+                "entry_price": entry_price_per_share,  # Per share price for display
+                "total_entry_value": total_entry_value,  # Total investment
                 "stop_loss": position[3],
                 "entry_time": position[4],
-                "five_day_high": position[5] or position[2]  # Use 5-day high or entry price as fallback
+                "five_day_high": position[5] or entry_price_per_share,
+                "quantity": quantity
             })
         return jsonify({"positions": positions_list})
     except Exception as e:
@@ -310,9 +332,9 @@ def positions_realtime():
         conn = sqlite3.connect('trading_strategy.db')
         cursor = conn.cursor()
         
-        # Get all open positions with real-time PnL and percentage data
+        # Get all open positions with real-time PnL and percentage data including quantity and day_high
         cursor.execute('''
-        SELECT token, symbol, entry_price, pnl, percent_gain 
+        SELECT token, symbol, entry_price, pnl, percent_gain, quantity, day_high
         FROM positions 
         WHERE status = "OPEN"
         ''')
@@ -322,19 +344,37 @@ def positions_realtime():
         
         positions_list = []
         for position in positions:
-            # Calculate current price from entry price and PnL
-            entry_price = position[2]
+            total_entry_value = position[2]  # This is total entry value
+            quantity = position[5] if position[5] is not None else 1
+            
+            # FIXED: Ensure quantity is never zero to prevent division by zero
+            if quantity <= 0:
+                quantity = 1
+                
+            entry_price_per_share = total_entry_value / quantity
+            
             pnl = position[3] or 0
-            current_price = entry_price + pnl
+            current_total_value = total_entry_value + pnl
+            current_price_per_share = current_total_value / quantity
             percent_gain = position[4] or 0
+            
+            # Get actual day high from database, fallback to current price if not available
+            day_high = position[6] if len(position) > 6 and position[6] is not None else current_price_per_share
+            
+            # FIXED: Ensure day_high is reasonable (not zero or negative)
+            if day_high <= 0:
+                day_high = current_price_per_share
             
             positions_list.append({
                 "token": position[0],
                 "symbol": position[1],
-                "entry_price": entry_price,
-                "current_price": current_price,
+                "entry_price": entry_price_per_share,
+                "current_price": current_price_per_share,
+                "day_high": day_high,
+                "total_current_value": current_total_value,
                 "pnl": pnl,
-                "percent_gain": percent_gain
+                "percent_gain": percent_gain,
+                "quantity": quantity
             })
         
         return jsonify({"positions": positions_list})
@@ -348,15 +388,24 @@ def trade_history():
         closed_positions = get_closed_positions()
         trades_list = []
         for trade in closed_positions:
+            quantity = trade[8] if len(trade) > 8 and trade[8] is not None else 1
+            total_entry_value = trade[2]
+            total_exit_value = trade[3]
+            entry_price_per_share = total_entry_value / quantity
+            exit_price_per_share = total_exit_value / quantity
+            
             trades_list.append({
                 "token": trade[0],
                 "symbol": trade[1],
-                "entry_price": trade[2],
-                "exit_price": trade[3],
+                "entry_price": entry_price_per_share,
+                "exit_price": exit_price_per_share,
+                "total_entry_value": total_entry_value,
+                "total_exit_value": total_exit_value,
                 "entry_time": trade[4],
                 "exit_time": trade[5],
                 "pnl": trade[6],
-                "percent_gain": trade[7]
+                "percent_gain": trade[7],
+                "quantity": quantity
             })
         return jsonify({"trades": trades_list})
     except Exception as e:
@@ -374,35 +423,45 @@ def performance():
 
 @app.route('/api/strategy/status')
 def strategy_status():
-    global strategy_process
+    global user_strategy_processes, current_user_id
     try:
-        # Check if the strategy is running
+        # Check if the strategy is running for current user
         is_running = False
-        if strategy_process is not None:
-            # Check if process is still running using subprocess.poll()
-            # poll() returns None if the process is still running
-            is_running = strategy_process.poll() is None
+        if current_user_id in user_strategy_processes:
+            strategy_process = user_strategy_processes[current_user_id]
+            if strategy_process is not None:
+                # Check if process is still running using subprocess.poll()
+                # poll() returns None if the process is still running
+                is_running = strategy_process.poll() is None
         
-        # Get statistics
-        closed_positions = get_closed_positions()
-        realized_pnl = sum([trade[6] for trade in closed_positions]) if closed_positions else 0
-        
-        # Calculate unrealized PnL from open positions
+        # Get EXACT statistics from database (matching verification script)
         conn = sqlite3.connect('trading_strategy.db')
         cursor = conn.cursor()
+        
+        # 1. Active Positions
+        cursor.execute('SELECT COUNT(*) FROM positions WHERE status = "OPEN"')
+        active_positions = cursor.fetchone()[0]
+        
+        # 2. Total Orders (Completed Trades)
+        cursor.execute('SELECT COUNT(*) FROM positions WHERE status = "CLOSED"')
+        total_orders = cursor.fetchone()[0]
+        
+        # 3. Realized P&L
+        cursor.execute('SELECT SUM(pnl) FROM positions WHERE status = "CLOSED"')
+        realized_pnl = cursor.fetchone()[0] or 0
+        
+        # 4. Unrealized P&L
         cursor.execute('SELECT SUM(pnl) FROM positions WHERE status = "OPEN"')
         unrealized_pnl = cursor.fetchone()[0] or 0
-        conn.close()
         
-        # Count total completed trades (not individual signals)
-        total_completed_trades = len(closed_positions)
+        conn.close()
         
         return jsonify({
             "running": is_running,
-            "positions": len(get_open_positions()),
-            "orders": total_completed_trades,  # Fixed: Count completed trades, not signals
+            "positions": active_positions,
+            "orders": total_orders,
             "realized_pnl": realized_pnl,
-            "unrealized_pnl": unrealized_pnl  # Fixed: Show real unrealized PnL
+            "unrealized_pnl": unrealized_pnl
         })
     except Exception as e:
         print(f"Error getting strategy status: {e}")
@@ -410,18 +469,23 @@ def strategy_status():
 
 @app.route('/api/strategy/start', methods=['POST'])
 def start_strategy():
-    global strategy_process
+    global user_strategy_processes, current_user_id
     try:
-        # Check if the process is already running
-        if strategy_process is not None and strategy_process.poll() is None:
-            return jsonify({"status": "success", "message": "Strategy is already running", "pid": strategy_process.pid})
+        # Check if the process is already running for current user
+        if current_user_id in user_strategy_processes:
+            strategy_process = user_strategy_processes[current_user_id]
+            if strategy_process is not None and strategy_process.poll() is None:
+                return jsonify({"status": "success", "message": "Strategy is already running", "pid": strategy_process.pid})
         
-        # Start the b2c_strategy.py script
+        # Start the b2c_strategy_websocket.py script (updated strategy with quantity support)
         import subprocess
-        strategy_process = subprocess.Popen(['python', 'b2c_strategy.py'], 
+        strategy_process = subprocess.Popen(['python', 'b2c_strategy_websocket.py'], 
                                   stdout=subprocess.PIPE, 
                                   stderr=subprocess.PIPE,
                                   text=True)
+        
+        # Store the process for current user
+        user_strategy_processes[current_user_id] = strategy_process
         
         # Return success
         return jsonify({"status": "success", "message": "Strategy started successfully", "pid": strategy_process.pid})
@@ -431,19 +495,102 @@ def start_strategy():
 
 @app.route('/api/strategy/stop', methods=['POST'])
 def stop_strategy():
-    global strategy_process
+    global user_strategy_processes, current_user_id
     try:
-        # Check if the process is running
-        if strategy_process is not None:
-            # Use standard subprocess methods to terminate the process
-            strategy_process.terminate()
-            strategy_process = None
-            return jsonify({"status": "success", "message": "Strategy stopped successfully"})
-        else:
-            return jsonify({"status": "success", "message": "Strategy was not running"})
+        # Check if the process is running for current user
+        if current_user_id in user_strategy_processes:
+            strategy_process = user_strategy_processes[current_user_id]
+            if strategy_process is not None:
+                # Use standard subprocess methods to terminate the process
+                strategy_process.terminate()
+                user_strategy_processes[current_user_id] = None
+                return jsonify({"status": "success", "message": "Strategy stopped successfully"})
+        
+        return jsonify({"status": "success", "message": "Strategy was not running"})
     except Exception as e:
         print(f"Error stopping strategy: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/emergency_square_off', methods=['POST'])
+def emergency_square_off():
+    """Emergency Square Off - Close all open positions immediately"""
+    try:
+        conn = sqlite3.connect('trading_strategy.db')
+        cursor = conn.cursor()
+        
+        # Get all open positions
+        cursor.execute('''
+        SELECT p.token, p.symbol, p.entry_price, p.quantity, t.high_price
+        FROM positions p
+        LEFT JOIN tokens t ON p.token = t.token
+        WHERE p.status = 'OPEN'
+        ''')
+        
+        open_positions = cursor.fetchall()
+        
+        if not open_positions:
+            conn.close()
+            return jsonify({
+                'status': 'info',
+                'message': 'No open positions to square off',
+                'positions_closed': 0
+            })
+        
+        closed_count = 0
+        total_pnl = 0
+        
+        # Close each position
+        for position in open_positions:
+            token, symbol, total_entry_value, quantity, high_price = position
+            
+            # Calculate per-share entry price
+            entry_price_per_share = total_entry_value / quantity if quantity > 0 else total_entry_value
+            
+            # For emergency square off, use a conservative exit price
+            emergency_exit_price = high_price * 0.99 if high_price else entry_price_per_share * 0.95
+            
+            # Calculate total exit value and P&L
+            total_exit_value = emergency_exit_price * quantity
+            pnl = total_exit_value - total_entry_value
+            percent_gain = (pnl / total_entry_value) * 100 if total_entry_value > 0 else 0
+            
+            # Update position to CLOSED
+            from datetime import timezone, timedelta
+            ist = timezone(timedelta(hours=5, minutes=30))
+            current_ist_time = datetime.now(ist).strftime('%Y-%m-%d %H:%M:%S')
+            
+            cursor.execute('''
+            UPDATE positions 
+            SET exit_price = ?, exit_time = ?, status = 'EMERGENCY_CLOSED', pnl = ?, percent_gain = ?
+            WHERE token = ? AND status = 'OPEN'
+            ''', (total_exit_value, current_ist_time, pnl, percent_gain, token))
+            
+            # Save emergency square off signal
+            cursor.execute('''
+            INSERT INTO signals (token, symbol, signal_type, price, high_price, stop_loss, percent_change, quantity, timestamp)
+            VALUES (?, ?, 'EMERGENCY_SELL', ?, ?, ?, ?, ?, ?)
+            ''', (token, symbol, emergency_exit_price, high_price or 0, 0, 0, quantity, current_ist_time))
+            
+            closed_count += 1
+            total_pnl += pnl
+            
+            print(f"🚨 EMERGENCY SQUARE OFF: {symbol} - {quantity} shares at ₹{emergency_exit_price:.2f} each (P&L: ₹{pnl:.2f})")
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Emergency square off completed',
+            'positions_closed': closed_count,
+            'total_pnl': round(total_pnl, 2)
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Emergency square off failed: {str(e)}'
+        }), 500
 
 @app.route('/api/logs/export')
 def export_logs():
@@ -452,12 +599,12 @@ def export_logs():
         conn = sqlite3.connect('trading_strategy.db')
         cursor = conn.cursor()
         
-        # Get signals
-        cursor.execute('SELECT token, symbol, signal_type, price, high_price, stop_loss, percent_change, timestamp FROM signals ORDER BY timestamp DESC')
+        # Get signals with quantity
+        cursor.execute('SELECT token, symbol, signal_type, price, high_price, stop_loss, percent_change, quantity, timestamp FROM signals ORDER BY timestamp DESC')
         signals = cursor.fetchall()
         
-        # Get positions
-        cursor.execute('SELECT token, symbol, entry_price, exit_price, entry_time, exit_time, stop_loss, status, pnl, percent_gain FROM positions ORDER BY entry_time DESC')
+        # Get positions with quantity
+        cursor.execute('SELECT token, symbol, entry_price, exit_price, entry_time, exit_time, stop_loss, status, pnl, percent_gain, quantity FROM positions ORDER BY entry_time DESC')
         positions = cursor.fetchall()
         
         conn.close()
@@ -477,14 +624,14 @@ def export_logs():
         # Write signals to CSV
         with open(signals_filename, 'w', newline='') as csvfile:
             writer = csv.writer(csvfile)
-            writer.writerow(['Token', 'Symbol', 'Signal Type', 'Price', 'High Price', 'Stop Loss', 'Percent Change', 'Timestamp'])
+            writer.writerow(['Token', 'Symbol', 'Signal Type', 'Price', 'High Price', 'Stop Loss', 'Percent Change', 'Quantity', 'Timestamp'])
             for signal in signals:
                 writer.writerow(signal)
         
         # Write positions to CSV
         with open(positions_filename, 'w', newline='') as csvfile:
             writer = csv.writer(csvfile)
-            writer.writerow(['Token', 'Symbol', 'Entry Price', 'Exit Price', 'Entry Time', 'Exit Time', 'Stop Loss', 'Status', 'PnL', 'Percent Gain'])
+            writer.writerow(['Token', 'Symbol', 'Entry Price', 'Exit Price', 'Entry Time', 'Exit Time', 'Stop Loss', 'Status', 'PnL', 'Percent Gain', 'Quantity'])
             for position in positions:
                 writer.writerow(position)
         
@@ -528,10 +675,10 @@ def add_test_signals():
                 signal['high_price']
             ))
             
-            # Insert signal into signals table
+            # Insert signal into signals table with quantity
             cursor.execute('''
-            INSERT INTO signals (token, symbol, signal_type, price, high_price, stop_loss, percent_change)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO signals (token, symbol, signal_type, price, high_price, stop_loss, percent_change, quantity)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 signal['token'],
                 signal['symbol'],
@@ -539,7 +686,8 @@ def add_test_signals():
                 signal['price'],
                 signal['high_price'],
                 signal['stop_loss'],
-                signal['percent_change']
+                signal['percent_change'],
+                signal.get('quantity', 1)
             ))
         
         conn.commit()

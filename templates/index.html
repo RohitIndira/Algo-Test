@@ -140,7 +140,12 @@
                                 <div class="row g-3">
                                     <div class="col-md-6">
                                         <label for="orderQuantity" class="form-label">Order Quantity</label>
-                                        <input type="number" class="form-control" id="orderQuantity" name="order_quantity" value="1" min="1" required>
+                                        <select class="form-select" id="orderQuantity" name="order_quantity" required>
+                                            <option value="1" selected>1 Share</option>
+                                            <option value="2">2 Shares</option>
+                                            <option value="3">3 Shares</option>
+                                            <option value="4">4 Shares</option>
+                                        </select>
                                     </div>
                                     <div class="col-md-6">
                                         <label for="stopLossPercentage" class="form-label">Stop Loss Percentage</label>

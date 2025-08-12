@@ -1,0 +1,55 @@
+🕐 ENTRY AND EXIT TIMING ANALYSIS
+============================================================
+
+📍 ENTRY TIMING CALCULATION:
+--------------------------------------------
+1. WebSocket receives market data in on_touchline()
+2. BUY condition triggers: (CMP > Stock_Data["High_Price"]) and (Stock_Data["Position"] == 0)
+3. save_signal() is called with current timestamp
+4. save_position() is called with current timestamp
+
+Entry timing code in save_position():
+   from datetime import timezone, timedelta
+   ist = timezone(timedelta(hours=5, minutes=30))
+   current_ist_time = datetime.now(ist).strftime("%Y-%m-%d %H:%M:%S")
+   # This timestamp is saved as entry_time in database
+
+📍 EXIT TIMING CALCULATION:
+--------------------------------------------
+1. WebSocket receives market data in on_touchline()
+2. SELL condition triggers: (CMP < Stock_Data["StopLoss"]) and (Stock_Data["Position"] == 1)
+3. save_signal() is called with current timestamp
+4. update_position() is called with current timestamp
+
+Exit timing code in update_position():
+   from datetime import timezone, timedelta
+   ist = timezone(timedelta(hours=5, minutes=30))
+   current_ist_time = datetime.now(ist).strftime("%Y-%m-%d %H:%M:%S")
+   # This timestamp is saved as exit_time in database
+
+⚠️  POTENTIAL TIMING ISSUES:
+--------------------------------------------
+1. PRECISION: Only second-level precision (%Y-%m-%d %H:%M:%S)
+2. WEBSOCKET SPEED: Multiple messages can arrive within same second
+3. DATAFRAME STATE: Position status checked from DataFrame, not database
+4. RACE CONDITIONS: DataFrame updates before database operations complete
+5. STOP LOSS SYNC: StopLoss value in DataFrame may not match database
+
+🔍 CURRENT FLOW:
+--------------------
+WebSocket Data → Check DataFrame State → Update DataFrame → Save to Database
+                     ↑                      ↓
+              (Timing recorded here)  (State updated here)
+
+This creates a gap between when timing is recorded and when state is updated!
+
+🚨 THE EXACT PROBLEM:
+--------------------
+1. WebSocket receives data for Stock A at 11:53:26.123
+2. BUY condition met, DataFrame updated: Position = 1
+3. Database saves entry_time as "2025-07-10 11:53:26"
+4. WebSocket receives more data for Stock A at 11:53:26.456 (same second!)
+5. SELL condition met (stop loss hit), DataFrame updated: Position = 0
+6. Database saves exit_time as "2025-07-10 11:53:26" (SAME SECOND!)
+
+Result: Entry and exit appear to happen at exactly the same time!
